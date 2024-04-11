@@ -11,15 +11,15 @@ sGuard+ supports 5 vulnerability types:
 - <a  href ="https://swcregistry.io/docs/SWC-115">SWC-115</a>: Authorization through Tx-origin Vulnerability (TXO)
 
 
-<!-- ## Docker
-Use the --- docker image.
+## Docker
+Build docker image:
 ```bash
-docker pull ---
+docker build -t sguardplus .
 ```
-To share a directory in the container:
+Run docker image with example:
 ```bash
-docker run -it -v ---
-``` -->
+docker run --rm -v ./example:/sGuardPlus/example sguardplus example/motivation_example.sol
+```
 
 <!-- ## Install -->
 ## Prerequisites
