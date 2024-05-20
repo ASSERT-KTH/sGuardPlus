@@ -14,30 +14,23 @@ def get_mid_dir(path):
 
 def run_sguardplus(path):
     command = f"node src/index.js {path}"
-    start_time = time.time()
     try:
         result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=60*60)
     except subprocess.TimeoutExpired:
-        return -1, -1, -1, -1
-    elapsed_time = time.time() - start_time
-    return result.returncode, elapsed_time, result.stdout, result.stderr
+        return -1, '', ''
+    return result.returncode, str(result.stdout), str(result.stderr)
 
 def write_results(results_csv, res):
     with open(results_csv, 'w', newline='') as csvfile:
         for r in res:
-            fieldnames = ['path', 'contract', 'elapsed_time', 'return_code']
+            fieldnames = ['path', 'return_code']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writerow({
                     'path': r[0],
-                    'contract': r[1],
-                    'elapsed_time': r[2],
-                    'return_code': r[3]
+                    'return_code': r[1]
                 })
 
 def use_solc(version):
-    components = version.split(".")
-    if eval(components[1]) <= 4 and eval(components[2]) < 12:
-        version = '0.4.12'
     install = f"solc-select install {version}"
     use = f"solc-select use {version}"
     try:
@@ -48,49 +41,40 @@ def use_solc(version):
     except:
         return False
 
-def process_entry(path, contract, outdir, version):
+def process_entry(path, outdir):
 
-    mid, file = get_mid_dir(path)
+    print(path)
+
+    els = path.split(os.path.sep)
+    file = els[-1].replace(".sol", '')
+    mid = els[-3:-1]
+    mid = os.path.join(*mid)
     outdir = os.path.join(outdir, mid)
-    outdir = os.path.join(outdir, file)
     os.makedirs(outdir, exist_ok=True)
-    ret = use_solc(version)
-    print(f"{path}: {ret}")
-    if not ret:
-        return path, contract, -1, -1, "", "Failed to use solc version"
-    return_code, elapsed_time, stdout, stderr = run_sguardplus(path)
+
+    return_code, stdout, stderr = run_sguardplus(path)
 
     # Move and rename the patch if it exists
     patch = path + ".fixed.sol"
     if os.path.exists(patch):
-        shutil.move(patch, os.path.join(outdir, file + ".sol"))
+        os.remove(patch)
     
     # Move the report if it exists
     report = path + "_vul_report.json"
     if os.path.exists(report):
-        shutil.move(report, os.path.join(outdir, file + ".bug.json"))
-    
-    stdout_file = os.path.join(outdir, file+ ".out")
-    stderr_file = os.path.join(outdir, file+ ".log")
-    with open(stdout_file, 'w') as file:
-        file.write(stdout)
-    with open(stderr_file, 'w') as file:
-        file.write(stderr)
+        shutil.move(report, os.path.join(outdir, file + ".patch.bug.json"))
 
-    return path, contract, elapsed_time, return_code
+    return path, return_code
 
 def get_args(smartbugs_dir, output_dir):
     args = []
 
-    vuln_json = os.path.join(smartbugs_dir, "vulnerabilities.json")
-    with open(vuln_json, 'r') as file:
-        data = json.load(file)
+    patches = os.path.join(smartbugs_dir, "valid_patches.csv")
+    with open(patches, 'r') as file:
+        data = file.readlines()
 
     for entry in data:
-        path = os.path.join(smartbugs_dir, entry.get('path'))
-        contract = entry.get('contract_names')[0]
-        version = entry.get('pragma')
-        args.append((path, contract, output_dir, version))
+        args.append((os.path.join(smartbugs_dir, entry.strip()), output_dir))
 
     return args
 
@@ -104,7 +88,9 @@ def write_log(res, output_dir):
         outdir = os.path.join(outdir, file)
         os.makedirs(outdir, exist_ok=True)
         stdout_file = os.path.join(outdir, file+ ".out")
+        print(stdout_file)
         stderr_file = os.path.join(outdir, file+ ".log")
+        print(stderr_file)
         with open(stdout_file, 'w') as file:
             file.write(stdout)
         with open(stderr_file, 'w') as file:
@@ -113,13 +99,18 @@ def write_log(res, output_dir):
 
 def main():
 
-    if len(sys.argv) != 3:
-        print("Usage: python run_on_smartbugs.py <smartbugs_directory> <output_directory>")
+    if len(sys.argv) != 4:
+        print("Usage: python run_on_smartbugs.py <smartbugs_directory> <output_directory> <processes>")
         sys.exit(1)
 
     smartbugs_dir = sys.argv[1]
     output_dir = sys.argv[2]
-    processes = 1 # TODO: adapt to multiple processes
+    processes = int(sys.argv[3])
+
+    ret = use_solc("0.4.24")
+    if not ret:
+        print("Failed to use solc version")
+        return
 
     with Pool(processes) as pool:
         res = pool.starmap(process_entry, get_args(smartbugs_dir, output_dir))
